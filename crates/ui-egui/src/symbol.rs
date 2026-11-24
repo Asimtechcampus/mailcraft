@@ -49,7 +49,7 @@ impl Symbol {
                 let fill = if resp.hovered() { t.hover } else { t.surface };
                 ui.painter().rect(r, 3.0, fill, egui::Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
                 // The no-break space shows as its name's initials.
-                let shown = if *c == '\u{a0}' { "NBSP".to_string() } else { c.to_string() };
+                let shown = if *c == '\u{a0}' { tl!("NBSP").to_string() } else { c.to_string() };
                 let size = if *c == '\u{a0}' { 9.0 } else { 17.0 };
                 ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, shown, regular(size), t.text);
                 app.hit.add("symbolCell", cell_id(*c), r);
@@ -63,7 +63,7 @@ impl Symbol {
             }
         });
         ui.label(tl!("Character code"));
-        let resp = ui.add(egui::TextEdit::singleline(&mut self.code).hint_text("U+2192").char_limit(10).desired_width(f32::INFINITY));
+        let resp = ui.add(crate::rtl::singleline(&mut self.code).hint_text("U+2192").char_limit(10).desired_width(f32::INFINITY));
         app.hit.add("symbolCode", 0, crate::text_menu::field(resp).rect);
         ui.label(RichText::new(tl!("A code point written U+2192 or 2192, or a decimal number after #.")).color(t.text_dim).size(11.0));
         if !self.error.is_empty() {

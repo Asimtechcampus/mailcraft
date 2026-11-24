@@ -54,6 +54,8 @@ const STRIP_W: f32 = 30.0;
 /// folders' ids and the accounts' (an account's heading folds under the account's own id).
 /// Accounts and folders are numbered from 1 in one sequence, so none of the three collide.
 const FAVORITES: Id = 0;
+/// The id the All Accounts heading (#625) is folded under, past any account's or folder's.
+pub(crate) const ALL_ACCOUNTS: Id = Id::MAX;
 /// The dot of an account's colour after its name in its heading (#893), and the room it takes there.
 const ACCOUNT_DOT_RADIUS: f32 = 4.5;
 const ACCOUNT_DOT_ROOM: f32 = 16.0;
@@ -66,47 +68,50 @@ pub fn module_bar(app: &mut MailApp, ui: &mut Ui) {
         return;
     }
     let t = Tokens::get(ui.ctx());
-    egui::Panel::left("modules").exact_size(RAIL_W).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(t.nav)).show(ui, |ui| {
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        for (n, (m, icon, id)) in module_buttons().into_iter().enumerate() {
-            let (r, resp) = ui.allocate_exact_size(vec2(RAIL_W, RAIL_PITCH), Sense::click());
-            app.hit.add("module", n as u64, r);
-            let active = app.session.view.module == m;
-            // Messages dragged over Calendar, Tasks or People are taken there (#873); Mail takes nothing.
-            let takes = dropped_as(m).is_some();
-            let dragged_over = takes && resp.dnd_hover_payload::<crate::mail_view::MessageDrag>().is_some();
-            if dragged_over {
-                crate::drag_pointer::note_folder(ui.ctx(), true);
-                app.hit.add("moduleDrop", n as u64, r);
-                ui.painter().rect_filled(r.shrink(6.0), 4.0, t.hover);
-                ui.painter().rect_stroke(r.shrink(6.0), 4.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+    crate::rtl::start_panel("modules").exact_size(RAIL_W).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(t.nav)).show(
+        ui,
+        |ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            for (n, (m, icon, id)) in module_buttons().into_iter().enumerate() {
+                let (r, resp) = ui.allocate_exact_size(vec2(RAIL_W, RAIL_PITCH), Sense::click());
+                app.hit.add("module", n as u64, r);
+                let active = app.session.view.module == m;
+                // Messages dragged over Calendar, Tasks or People are taken there (#873); Mail takes nothing.
+                let takes = dropped_as(m).is_some();
+                let dragged_over = takes && resp.dnd_hover_payload::<crate::mail_view::MessageDrag>().is_some();
+                if dragged_over {
+                    crate::drag_pointer::note_folder(ui.ctx(), true);
+                    app.hit.add("moduleDrop", n as u64, r);
+                    ui.painter().rect_filled(r.shrink(6.0), 4.0, t.hover);
+                    ui.painter().rect_stroke(r.shrink(6.0), 4.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+                }
+                if active {
+                    // The module in view: a bar at the window's edge, and its icon in the accent.
+                    let bar = Rect::from_min_size(pos2(r.min.x + 6.0, r.center().y - 16.0), vec2(2.0, 32.0));
+                    ui.painter().rect_filled(bar, 1.0, t.accent);
+                } else if resp.hovered() && !dragged_over {
+                    ui.painter().rect_filled(r.shrink(6.0), 4.0, if resp.is_pointer_button_down_on() { t.pressed } else { t.hover });
+                }
+                // One colour: the icons of the bar are line drawings, lit when theirs is the module in view.
+                let ink = if active { t.accent_text } else { t.icon };
+                icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(24.0, 24.0)), icon, ink, ink);
+                let sc = crate::widgets::shortcut_text(app, id);
+                if takes && let Some(drag) = resp.dnd_release_payload::<crate::mail_view::MessageDrag>() {
+                    drop_on_module(app, m, &drag.0);
+                }
+                if resp.on_hover_text(format!("{} ({sc})", tl!(m.label()))).clicked() {
+                    let _ = app.run(id, json!({}));
+                }
             }
-            if active {
-                // The module in view: a bar at the window's edge, and its icon in the accent.
-                let bar = Rect::from_min_size(pos2(r.min.x + 6.0, r.center().y - 16.0), vec2(2.0, 32.0));
-                ui.painter().rect_filled(bar, 1.0, t.accent);
-            } else if resp.hovered() && !dragged_over {
-                ui.painter().rect_filled(r.shrink(6.0), 4.0, if resp.is_pointer_button_down_on() { t.pressed } else { t.hover });
+            // What a .pst file's notes and journal entries will be read in: kept, with no view yet.
+            for (icon, name) in [("notes", tl!("Notes")), ("journal", tl!("Journal"))] {
+                let (r, resp) = ui.allocate_exact_size(vec2(RAIL_W, RAIL_PITCH), Sense::hover());
+                let ink = t.icon.linear_multiply(0.45);
+                icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(24.0, 24.0)), icon, ink, ink);
+                resp.on_hover_text(format!("{name}: {}", tl!("Pending development")));
             }
-            // One colour: the icons of the bar are line drawings, lit when theirs is the module in view.
-            let ink = if active { t.accent_text } else { t.icon };
-            icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(24.0, 24.0)), icon, ink, ink);
-            let sc = crate::widgets::shortcut_text(app, id);
-            if takes && let Some(drag) = resp.dnd_release_payload::<crate::mail_view::MessageDrag>() {
-                drop_on_module(app, m, &drag.0);
-            }
-            if resp.on_hover_text(format!("{} ({sc})", tl!(m.label()))).clicked() {
-                let _ = app.run(id, json!({}));
-            }
-        }
-        // What a .pst file's notes and journal entries will be read in: kept, with no view yet.
-        for (icon, name) in [("notes", tl!("Notes")), ("journal", tl!("Journal"))] {
-            let (r, resp) = ui.allocate_exact_size(vec2(RAIL_W, RAIL_PITCH), Sense::hover());
-            let ink = t.icon.linear_multiply(0.45);
-            icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(24.0, 24.0)), icon, ink, ink);
-            resp.on_hover_text(format!("{name}: {}", tl!("Pending development")));
-        }
-    });
+        },
+    );
 }
 
 /// What a message let go over the module `m` becomes (#873): the kind `mail.itemFromMessage`
@@ -405,7 +410,7 @@ fn heading(app: &mut MailApp, ui: &mut Ui, id: Id, name: &str, height: f32, text
     let y = r.min.y + text_y;
     chevron(ui.painter(), pos2(r.min.x + CHEVRON_X, y), HEADING_CHEVRON, open, if resp.hovered() { t.accent_text } else { t.text });
     // An account's colour (#893): a dot after its name, which leaves room for it.
-    let color = app.session.mailbox.account(id).and_then(|a| a.color).filter(|_| id != FAVORITES);
+    let color = app.session.mailbox.account(id).and_then(|a| a.color).filter(|_| id != FAVORITES && id != ALL_ACCOUNTS);
     let room = if color.is_some() { ACCOUNT_DOT_ROOM } else { 0.0 };
     let w =
         paint_clipped(ui.painter(), pos2(r.min.x + NAME_LEFT, y), (r.width() - NAME_LEFT - 8.0 - room).max(0.0), name, regular(HEADING_SIZE), t.text);
@@ -421,8 +426,8 @@ fn heading(app: &mut MailApp, ui: &mut Ui, id: Id, name: &str, height: f32, text
     if resp.clicked() {
         let _ = app.execute("ui.toggleFolder", json!({"id": id}));
     }
-    // An account's heading (not the Favorites').
-    if id != FAVORITES {
+    // An account's heading (not the Favorites' nor All Accounts').
+    if id != FAVORITES && id != ALL_ACCOUNTS {
         resp.context_menu(|ui| {
             ui.set_min_width(190.0);
             // The keyboard's and the menu's way of a drag (#702), for the accounts that drag.
@@ -653,19 +658,7 @@ fn folder_row(app: &mut MailApp, ui: &mut Ui, f: &Folder, depth: usize, has_chil
         }
     }
     let y = r.center().y;
-    // The count, flush right, in a pill: an unread count in the accent's soft colour, a total
-    // (Drafts, Junk) in a quiet grey one.
-    let mut name_end = r.max.x - COUNT_RIGHT;
-    if count != Count::Nothing {
-        let (fill, ink) = if matches!(count, Count::Unread(_)) { (t.accent_soft, t.accent_soft_text) } else { (t.pill_quiet, t.text_dim) };
-        let fill = if selected && matches!(count, Count::Unread(_)) { t.surface } else { fill };
-        let galley = ui.painter().layout_no_wrap(count.digits(), bold(NAME_SIZE - 1.0), ink);
-        let w = (galley.size().x + 12.0).max(20.0);
-        let pill = Rect::from_center_size(pos2(r.max.x - COUNT_RIGHT + 4.0 - w / 2.0, r.center().y), vec2(w, 18.0));
-        ui.painter().rect_filled(pill, 9.0, fill);
-        ui.painter().galley(pill.center() - galley.size() / 2.0, galley, ink);
-        name_end = pill.min.x - 6.0;
-    }
+    let name_end = count_pill(ui, &t, r, count, selected);
     let font = if selected { bold(NAME_SIZE) } else { regular(NAME_SIZE) };
     paint_clipped(
         ui.painter(),
@@ -818,16 +811,7 @@ fn gmail_row(app: &mut MailApp, ui: &mut Ui, inbox: Id, depth: usize, category: 
     let resp = ui.interact(r, ui.scope_id().with(("gmail", inbox, category.code())), Sense::click());
     app.hit.add(gmail_hit(category), inbox, r);
     let row = highlight(r).shrink2(vec2(0.0, ROW_HIGHLIGHT_INSET));
-    if selected {
-        ui.painter().rect_filled(row, 6.0, t.accent_soft);
-        ui.painter().rect_filled(Rect::from_center_size(pos2(row.min.x + 1.5, row.center().y), vec2(3.0, 14.0)), 1.5, t.selection_edge);
-    } else if resp.hovered() {
-        ui.painter().rect_filled(row, 6.0, t.hover_nav);
-    }
-    // Reached with Tab or the arrow keys (Enter or Space shows it): where the keyboard is.
-    if resp.has_focus() {
-        ui.painter().rect_stroke(row, 6.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
-    }
+    row_backdrop(ui, &t, row, selected, &resp);
     let x = r.min.x + depth.min(MAX_INDENT_DEPTH) as f32 * INDENT;
     let y = r.center().y;
     let mut name_end = r.max.x - COUNT_RIGHT;
@@ -857,6 +841,43 @@ fn gmail_row(app: &mut MailApp, ui: &mut Ui, inbox: Id, depth: usize, category: 
         let _ = app.run("folder.select", json!({"id": inbox, "gmail": category.code()}));
     }
     crate::gmail_move::drop_target(app, ui, &resp, row, category);
+}
+
+/// What the window calls every account's folder of `kind` together (#625).
+pub(crate) fn unified_name(kind: FolderKind) -> &'static str {
+    match kind {
+        FolderKind::Drafts => tl!("All Drafts"),
+        FolderKind::Sent => tl!("All Sent Items"),
+        FolderKind::Deleted => tl!("All Deleted Items"),
+        FolderKind::Archive => tl!("All Archives"),
+        _ => tl!("All Inboxes"),
+    }
+}
+
+/// A row under All Accounts (#625): every account's folder of `kind` in one list, counted as
+/// one of them would be with all of theirs, `selected` while the list shows it. A view over the
+/// accounts' folders, no folder of its own: nothing to rename, delete or drop mail on.
+fn unified_row(app: &mut MailApp, ui: &mut Ui, kind: FolderKind, count: Count, selected: bool) {
+    let t = Tokens::get(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+    let resp = ui.interact(r, ui.scope_id().with(("unified", kind.code())), Sense::click());
+    app.hit.add("unifiedFolder", mailcraft_engine::unified::KINDS.iter().position(|k| *k == kind).unwrap_or(0) as Id, r);
+    let row = highlight(r).shrink2(vec2(0.0, ROW_HIGHLIGHT_INSET));
+    row_backdrop(ui, &t, row, selected, &resp);
+    let x = r.min.x;
+    let name_end = count_pill(ui, &t, r, count, selected);
+    let name = unified_name(kind);
+    let font = if selected { bold(NAME_SIZE) } else { regular(NAME_SIZE) };
+    let ink = if selected { t.accent_soft_text } else { t.text };
+    paint_clipped(ui.painter(), pos2(x + NAME_LEFT, r.center().y), (name_end - x - NAME_LEFT).max(0.0), name, font, ink);
+    let said = match count {
+        Count::Unread(n) => format!("{name}, {}", tln!(n, "{n} unread", "{n} unread")),
+        _ => name.to_string(),
+    };
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::TreeItem, true, selected, &said));
+    if resp.clicked() {
+        let _ = app.run("view.allAccounts", json!({"kind": kind.code()}));
+    }
 }
 
 /// A sentence under the Favorites heading that is longer than a row: wrapped to the pane, three
@@ -1004,7 +1025,7 @@ fn pane_top(app: &mut MailApp, ui: &mut Ui, t: &Tokens) {
 /// brings it back, where the button that hid it was.
 pub fn folder_pane_strip(app: &mut MailApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    egui::Panel::left("folders_hidden").exact_size(STRIP_W).resizable(false).frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+    crate::rtl::start_panel("folders_hidden").exact_size(STRIP_W).resizable(false).frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
         sheet(ui.painter(), ui.max_rect(), &t);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         ui.add_space(4.0);
@@ -1027,7 +1048,7 @@ pub fn folder_pane_strip(app: &mut MailApp, ui: &mut Ui) {
 /// The folder pane: favourites, then every account's folders.
 pub fn folder_pane(app: &mut MailApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    let panel = egui::Panel::left("folders")
+    let panel = crate::rtl::start_panel("folders")
         .default_size(app.ui.folder_pane_width)
         .size_range(160.0..=420.0)
         .resizable(true)
@@ -1075,7 +1096,9 @@ pub fn folder_pane(app: &mut MailApp, ui: &mut Ui) {
             // they are tabs above the list instead (`view.gmailCategories`), the Inbox's is.
             let gmail_tabs = app.session.view.gmail_tabs;
             let gmail_now = mailcraft_engine::gmail::in_view(&app.session);
-            let current = if gmail_now.is_some() && !gmail_tabs { 0 } else { app.session.view.folder };
+            // (Every account's folder of a kind, #625: its row under All Accounts, no folder's.)
+            let unified = mailcraft_engine::unified::of(&app.session);
+            let current = if (gmail_now.is_some() && !gmail_tabs) || unified.is_some() { 0 } else { app.session.view.folder };
             let gmail_current = app.session.view.folder;
             let among_favorites = !folded.contains(&FAVORITES) && favorites.iter().any(|f| f.id == current);
             let in_a_list = lists.iter().any(|(_, _, rows)| rows.iter().any(|(f, _, _)| f.id == current));
@@ -1095,6 +1118,21 @@ pub fn folder_pane(app: &mut MailApp, ui: &mut Ui) {
                     heading(app, ui, id, name, 2.0 * ROW_H, 34.5, true, movable.contains(&id))
                 }
             };
+            // Every account's Inbox (Drafts, Sent Items…) together, at the top, for an owner with two
+            // accounts at least, a shared mailbox counting as one (#625): each kind that one of them has.
+            if mailcraft_engine::unified::offered(&app.session.mailbox) && head(app, ui, ALL_ACCOUNTS, tl!("All Accounts")) {
+                for kind in mailcraft_engine::unified::KINDS {
+                    let folders = mailcraft_engine::unified::folders(&app.session.mailbox, kind);
+                    if folders.is_empty() {
+                        continue;
+                    }
+                    let (total, unread) = folders.iter().fold((0usize, 0usize), |(t, u), f| {
+                        let held = counts.folder(*f);
+                        (t.saturating_add(held.total), u.saturating_add(held.unread))
+                    });
+                    unified_row(app, ui, kind, Count::of(kind, total, unread), unified == Some(kind));
+                }
+            }
             if (!favorites.is_empty() || note.is_some()) && head(app, ui, FAVORITES, tl!("Favorites")) {
                 if let Some((account, note)) = &note {
                     favorites_note(app, ui, *account, note);
@@ -1250,3 +1288,37 @@ pub(crate) mod tests;
 #[cfg(test)]
 #[path = "nav_drop_tests.rs"]
 mod drop_tests;
+
+#[cfg(test)]
+#[path = "nav_unified_tests.rs"]
+mod unified_tests;
+
+/// A folder-pane row's background: the selection (soft fill and an edge mark), the hover, and the
+/// keyboard's focus ring (reached with Tab or the arrow keys; Enter or Space shows it).
+fn row_backdrop(ui: &Ui, t: &Tokens, row: Rect, selected: bool, resp: &egui::Response) {
+    if selected {
+        ui.painter().rect_filled(row, 6.0, t.accent_soft);
+        ui.painter().rect_filled(Rect::from_center_size(pos2(row.min.x + 1.5, row.center().y), vec2(3.0, 14.0)), 1.5, t.selection_edge);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(row, 6.0, t.hover_nav);
+    }
+    if resp.has_focus() {
+        ui.painter().rect_stroke(row, 6.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+    }
+}
+
+/// The count, flush right, in a pill: an unread count in the accent's soft colour, a total
+/// (Drafts, Junk) in a quiet grey one. Answers where the name must end.
+fn count_pill(ui: &Ui, t: &Tokens, r: Rect, count: Count, selected: bool) -> f32 {
+    if count == Count::Nothing {
+        return r.max.x - COUNT_RIGHT;
+    }
+    let (fill, ink) = if matches!(count, Count::Unread(_)) { (t.accent_soft, t.accent_soft_text) } else { (t.pill_quiet, t.text_dim) };
+    let fill = if selected && matches!(count, Count::Unread(_)) { t.surface } else { fill };
+    let galley = ui.painter().layout_no_wrap(count.digits(), bold(NAME_SIZE - 1.0), ink);
+    let w = (galley.size().x + 12.0).max(20.0);
+    let pill = Rect::from_center_size(pos2(r.max.x - COUNT_RIGHT + 4.0 - w / 2.0, r.center().y), vec2(w, 18.0));
+    ui.painter().rect_filled(pill, 9.0, fill);
+    ui.painter().galley(pill.center() - galley.size() / 2.0, galley, ink);
+    pill.min.x - 6.0
+}

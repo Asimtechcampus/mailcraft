@@ -1446,7 +1446,7 @@ fn folder_menu_scope(ui: &mut Ui, app: &mut MailApp, scope: FolderScope, mut pic
     let many = list.many;
     let list = &list.rows;
 
-    let edit = ui.add(egui::TextEdit::singleline(&mut st.text).hint_text(tl!("Search folders")).desired_width(200.0).char_limit(FOLDER_SEARCH_MAX));
+    let edit = ui.add(crate::rtl::singleline(&mut st.text).hint_text(tl!("Search folders")).desired_width(200.0).char_limit(FOLDER_SEARCH_MAX));
     let edit = crate::text_menu::field(edit);
     if fresh {
         edit.request_focus();
@@ -1580,13 +1580,13 @@ pub fn category_menu(
         category_rows(&app.session.mailbox, accounts, carried).into_iter().map(|c| (c.name, crate::theme::c32(c.color))).collect();
     for (name, color) in cats {
         let on = has(app, &name);
-        ui.horizontal(|ui| {
+        crate::rtl::horizontal(ui, |ui| {
             let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
             ui.painter().rect_filled(r.shrink(1.0), 3.0, color);
             if on {
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, "✓", medium(10.0), Tokens::get(ui.ctx()).on_swatch);
             }
-            if ui.add(egui::Button::new(name.as_str()).selected(on).min_size(vec2(170.0, 0.0))).clicked() {
+            if ui.add(egui::Button::new(crate::i18n::category_label(&name)).selected(on).min_size(vec2(170.0, 0.0))).clicked() {
                 let _ = app.run(command, json!({"category": name}));
                 ui.close();
             }
@@ -1848,7 +1848,9 @@ pub(crate) fn menu_contents(ui: &mut Ui, app: &mut MailApp, menu: Menu) {
         }
         Menu::ReadingPane => {
             let cur = app.session.view.reading_pane;
-            for (label, code, pane) in [("Right", "right", Pane::Right), ("Bottom", "bottom", Pane::Bottom), ("Off", "off", Pane::Off)] {
+            for (label, code, pane) in
+                [(tl_later!("Right"), "right", Pane::Right), (tl_later!("Bottom"), "bottom", Pane::Bottom), (tl_later!("Off"), "off", Pane::Off)]
+            {
                 mi_check(ui, app, label, cur == pane, "view.readingPane", json!({"value": code}));
             }
         }
@@ -1864,7 +1866,7 @@ pub(crate) fn menu_contents(ui: &mut Ui, app: &mut MailApp, menu: Menu) {
         }
         Menu::Preview => {
             let lines = app.session.prefs.preview_lines;
-            for (label, n) in [("Off", 0u8), ("1 Line", 1), ("2 Lines", 2), ("3 Lines", 3)] {
+            for (label, n) in [(tl_later!("Off"), 0u8), (tl_later!("1 Line"), 1), (tl_later!("2 Lines"), 2), (tl_later!("3 Lines"), 3)] {
                 mi_check(ui, app, label, lines == n, "view.previewLines", json!({"value": n}));
             }
             ui.separator();
@@ -1959,8 +1961,7 @@ pub(crate) fn font_menu(ui: &mut Ui, app: &mut MailApp) {
     ui.separator();
     let key = font_search_key();
     let mut query: String = ui.data(|d| d.get_temp(key)).unwrap_or_default();
-    let field =
-        crate::text_menu::field(ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Find a font")).char_limit(64).desired_width(190.0)));
+    let field = crate::text_menu::field(ui.add(crate::rtl::singleline(&mut query).hint_text(tl!("Find a font")).char_limit(64).desired_width(190.0)));
     ui.data_mut(|d| d.insert_temp(key, query.clone()));
     app.hit.add("fontSearch", 0, field.rect);
     let enabled = app.enabled("format.font");
@@ -2023,7 +2024,7 @@ pub(crate) fn color_menu(ui: &mut Ui, app: &mut MailApp) {
     let now = look_now(app).color;
     let enabled = app.enabled("format.color");
     mi_check(ui, app, "Automatic", now == Some(None), "format.color", json!({"value": null}));
-    ui.horizontal_wrapped(|ui| {
+    crate::rtl::horizontal_wrapped(ui, |ui| {
         ui.set_max_width(190.0);
         for (name, hex) in COLORS {
             let Ok(c) = egui::Color32::from_hex(hex) else { continue };
@@ -2039,10 +2040,10 @@ pub(crate) fn color_menu(ui: &mut Ui, app: &mut MailApp) {
             }
         }
     });
-    ui.horizontal(|ui| {
+    crate::rtl::horizontal(ui, |ui| {
         let key = egui::Id::unique("mailcraft-custom-color");
         let mut typed: String = ui.data(|d| d.get_temp(key)).unwrap_or_else(|| now.clone().flatten().unwrap_or_default());
-        crate::text_menu::field(ui.add(egui::TextEdit::singleline(&mut typed).hint_text("#rrggbb").desired_width(90.0).char_limit(7)));
+        crate::text_menu::field(ui.add(crate::rtl::singleline(&mut typed).hint_text("#rrggbb").desired_width(90.0).char_limit(7)));
         let valid = mailcraft_model::rich::safe_color(&typed);
         if ui.add_enabled(enabled && valid.is_some(), egui::Button::new(tl!("Apply"))).clicked()
             && let Some(hex) = valid
@@ -2071,7 +2072,7 @@ pub(crate) fn highlight_menu(ui: &mut Ui, app: &mut MailApp) {
     let now = look_now(app).highlight;
     let enabled = app.enabled("format.highlight");
     mi_check(ui, app, "No Color", now == Some(None), "format.highlight", json!({"value": null}));
-    ui.horizontal_wrapped(|ui| {
+    crate::rtl::horizontal_wrapped(ui, |ui| {
         ui.set_max_width(190.0);
         for (name, hex) in HIGHLIGHTS {
             let Ok(c) = egui::Color32::from_hex(hex) else { continue };
@@ -2701,7 +2702,7 @@ fn strip(app: &mut MailApp, ui: &mut Ui, tabs: &[&'static str], current: &str, i
                 let label = tl!("Search commands");
                 let shown = fit::search(ui.available_width(), widgets::icon_text_width(ui, label));
                 if shown != fit::Search::Hidden {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(crate::rtl::end_to_start(egui::Align::Center), |ui| {
                         let resp = match shown {
                             fit::Search::Named => widgets::icon_text_button(ui, "search", label, true),
                             _ => widgets::icon_button(ui, "search", label, 16.0, true),

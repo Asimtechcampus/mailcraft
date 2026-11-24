@@ -46,6 +46,12 @@ pub fn set_current(lang: Lang) {
     store_current(lang);
 }
 
+/// Whether the window reads from the right (Arabic). The whole frame is then mirrored by
+/// [`crate::mirror`], so layout code is written once, left to right.
+pub fn rtl() -> bool {
+    current().is_rtl()
+}
+
 /// The window's language.
 pub fn current() -> Lang {
     let _held = hold_language();
@@ -173,6 +179,22 @@ pub fn with_reason(heading: &str, reason: &str) -> String {
 /// A command's location (`Home › Respond`) in the interface language, part by part.
 pub fn location(loc: &str) -> String {
     mailcraft_i18n::location(current(), loc)
+}
+
+/// A category's name as shown: the six a new mailbox starts with are kept in English in the
+/// file (rules and servers match on the name), and read in the interface language here; any
+/// other name is the owner's own and stays as it is.
+pub fn category_label(name: &str) -> String {
+    match name {
+        "Red category" => tl!("Red category"),
+        "Orange category" => tl!("Orange category"),
+        "Yellow category" => tl!("Yellow category"),
+        "Green category" => tl!("Green category"),
+        "Blue category" => tl!("Blue category"),
+        "Purple category" => tl!("Purple category"),
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 #[cfg(test)]

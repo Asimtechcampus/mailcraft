@@ -501,7 +501,9 @@ pub(crate) fn open_dialog(app: &mut MailApp, name: &str, params: &Value) -> Opti
 pub fn confirmation(app: &MailApp, id: &str, params: &Value) -> Option<Question> {
     let mb = &app.session.mailbox;
     // Read as the command reads it (#553): one named wrongly asks nothing, and the command refuses it.
-    let folder = |key: &str| mailcraft_engine::p::id_strict(params, key).ok()?.or(Some(app.session.view.folder)).and_then(|f| mb.folder(f));
+    // (No folder in view to fall back on while every account's of a kind is, #625.)
+    let in_view = mailcraft_engine::unified::of(&app.session).is_none().then_some(app.session.view.folder);
+    let folder = |key: &str| mailcraft_engine::p::id_strict(params, key).ok()?.or(in_view).and_then(|f| mb.folder(f));
     // (A JMAP account's too: its deletions go up with its next run. Not an Exchange server
     // account's, as before.)
     let on_server = |account: u64| mb.account(account).is_some_and(|a| a.kind.has_server() && a.kind != mailcraft_model::AccountKind::Exchange);
@@ -994,7 +996,11 @@ pub(crate) fn pin_targets(app: &MailApp, id: &str, mut params: Value) -> Value {
         });
     let pin = match id {
         "people.delete" if !named("id") => sel.contact.map(|c| ("id", json!(c))),
-        "folder.empty" | "folder.delete" if !named("id") => Some(("id", json!(app.session.view.folder))),
+        // (Not while every account's folder of a kind is in view, #625: the command refuses to
+        // guess which account's.)
+        "folder.empty" | "folder.delete" if !named("id") && mailcraft_engine::unified::of(&app.session).is_none() => {
+            Some(("id", json!(app.session.view.folder)))
+        }
         // The message the question was about, not whatever is selected when the owner says yes
         // (#1207); `null` reads as the selection there too.
         "ui.unsubscribe" if params.get("message").is_none_or(Value::is_null) => sel.focus().map(|m| ("message", json!(m))),
@@ -2272,7 +2278,7 @@ pub(crate) fn window(ctx: &egui::Context, title: &str, width: f32, add: impl FnO
 /// that centres its buttons otherwise takes all the height that is left, which leaves a gap
 /// above and below them in a dialog that has room to spare.)
 pub(crate) fn button_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.allocate_ui_with_layout(vec2(ui.available_width(), 26.0), egui::Layout::right_to_left(egui::Align::Center), add);
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 26.0), crate::rtl::end_to_start(egui::Align::Center), add);
 }
 
 /// OK and Cancel, right-aligned. Returns `(ok, cancel)`.
@@ -2340,9 +2346,8 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
     match &mut dialog {
         Dialog::Commands { query, selected } => {
             let open = window(ctx, tl!("Search Commands"), 520.0, |ui| {
-                let resp = ui.add(
-                    egui::TextEdit::singleline(query).hint_text(tl!("Type what you want to do")).desired_width(f32::INFINITY).font(regular(14.0)),
-                );
+                let resp =
+                    ui.add(crate::rtl::singleline(query).hint_text(tl!("Type what you want to do")).desired_width(f32::INFINITY).font(regular(14.0)));
                 let resp = crate::text_menu::field(resp);
                 crate::text_menu::hold(&resp);
                 let mut hits: Vec<(u32, (String, String, String, String, bool))> =
@@ -2372,18 +2377,18 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
                             ui.painter().rect_filled(r, 4.0, t.hover);
                         }
                         let ink = if *enabled { t.text } else { t.text_disabled };
-                        let w = crate::theme::paint_clipped(
+                        crate::theme::paint_clipped(
                             ui.painter(),
                             egui::pos2(r.min.x + 10.0, r.center().y),
-                            r.width() * 0.5,
+                            r.width() * 0.42,
                             label,
                             regular(13.0),
                             ink,
                         );
                         crate::theme::paint_clipped(
                             ui.painter(),
-                            egui::pos2(r.min.x + 22.0 + w, r.center().y),
-                            (r.width() * 0.45 - w).max(60.0),
+                            egui::pos2(r.min.x + r.width() * 0.46, r.center().y),
+                            (r.width() * 0.54 - 110.0).max(60.0),
                             location,
                             regular(11.0),
                             t.text_dim,
@@ -2413,7 +2418,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
                     let place = parent.map(|p| crate::nav::folder_path(&app.session.mailbox, p)).unwrap_or_else(|| tl!("the top level").to_string());
                     ui.label(egui::RichText::new(crate::i18n::fmt(tl!("In {place}"), &[("place", &place)])).color(t.text_dim));
                 }
-                let resp = ui.add(egui::TextEdit::singleline(name).hint_text(tl!("Folder name")).desired_width(f32::INFINITY));
+                let resp = ui.add(crate::rtl::singleline(name).hint_text(tl!("Folder name")).desired_width(f32::INFINITY));
                 let resp = crate::text_menu::field(resp);
                 if error.is_empty() {
                     crate::text_menu::hold(&resp);
@@ -2452,7 +2457,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             let mut submit = false;
             let open = window(ctx, tl!("Go to Date"), 320.0, |ui| {
                 ui.label(tl!("Date (YYYY-MM-DD)"));
-                let resp = crate::text_menu::field(ui.add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY)));
+                let resp = crate::text_menu::field(ui.add(crate::rtl::singleline(text).desired_width(f32::INFINITY)));
                 if error.is_empty() {
                     crate::text_menu::hold(&resp);
                 }
@@ -2480,7 +2485,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             let mut submit = false;
             let open = window(ctx, tl!("Direct Replies To"), 420.0, |ui| {
                 ui.label(tl!("Have replies sent to"));
-                let resp = crate::text_menu::field(ui.add(egui::TextEdit::singleline(text).desired_width(f32::INFINITY)));
+                let resp = crate::text_menu::field(ui.add(crate::rtl::singleline(text).desired_width(f32::INFINITY)));
                 if error.is_empty() {
                     crate::text_menu::hold(&resp);
                 }
@@ -2509,7 +2514,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             }
             let open = window(ctx, tl!("Add Shared Mailbox"), 420.0, |ui| {
                 ui.label(tl!("The shared mailbox's e-mail address"));
-                let field = egui::TextEdit::singleline(address).hint_text("support@example.org").desired_width(f32::INFINITY);
+                let field = crate::rtl::singleline(address).hint_text("support@example.org").desired_width(f32::INFINITY);
                 let resp = crate::text_menu::field(ui.add_enabled(checking.is_none(), field));
                 if checking.is_none() && error.is_empty() {
                     crate::text_menu::hold(&resp);
@@ -2567,7 +2572,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             }
             let open = window(ctx, tl!("Open Shared Calendar"), 420.0, |ui| {
                 ui.label(tl!("The e-mail address of the person whose calendar you want to open"));
-                let field = egui::TextEdit::singleline(address).hint_text("colleague@example.org").desired_width(f32::INFINITY);
+                let field = crate::rtl::singleline(address).hint_text("colleague@example.org").desired_width(f32::INFINITY);
                 let resp = crate::text_menu::field(ui.add_enabled(reading.is_none(), field));
                 if reading.is_none() && error.is_empty() {
                     crate::text_menu::hold(&resp);
@@ -2604,17 +2609,15 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             let mut use_offer = false;
             let open = window(ctx, tl!("Subscribe to Internet Calendar"), 460.0, |ui| {
                 ui.label(tl!("The address of the calendar"));
-                let field = egui::TextEdit::singleline(address)
-                    .password(true)
-                    .hint_text("https://calendar.example.org/club.ics")
-                    .desired_width(f32::INFINITY);
+                let field =
+                    crate::rtl::singleline(address).password(true).hint_text("https://calendar.example.org/club.ics").desired_width(f32::INFINITY);
                 let resp = crate::text_menu::field(ui.add(field));
                 if error.is_empty() {
                     crate::text_menu::hold(&resp);
                 }
                 ui.add_space(2.0);
                 ui.label(tl!("Name (optional)"));
-                let field = egui::TextEdit::singleline(name).hint_text(tl!("The name the calendar gives itself")).desired_width(f32::INFINITY);
+                let field = crate::rtl::singleline(name).hint_text(tl!("The name the calendar gives itself")).desired_width(f32::INFINITY);
                 crate::text_menu::field(ui.add(field));
                 ui.label(
                     egui::RichText::new(tl!(
@@ -2653,7 +2656,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
             let (mut submit, mut remove) = (false, false);
             let open = window(ctx, tl!("Insert Link"), 420.0, |ui| {
                 ui.label(tl!("Address"));
-                let resp = ui.add(egui::TextEdit::singleline(url).hint_text("https://www.example.org").desired_width(f32::INFINITY));
+                let resp = ui.add(crate::rtl::singleline(url).hint_text("https://www.example.org").desired_width(f32::INFINITY));
                 let resp = crate::text_menu::field(resp);
                 if error.is_empty() {
                     crate::text_menu::hold(&resp);
@@ -2750,7 +2753,7 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
                 egui::Grid::new("wordCount").num_columns(2).spacing(vec2(24.0, 6.0)).show(ui, |ui| {
                     for (name, n) in names.iter().zip(counts.iter()) {
                         ui.label(*name);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.with_layout(crate::rtl::end_to_start(egui::Align::Center), |ui| {
                             ui.label(egui::RichText::new(n.to_string()).font(semibold(13.0)));
                         });
                         ui.end_row();
@@ -2874,8 +2877,8 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
                     });
                 }
                 if let Some((_, note, hint)) = &mut ask.note {
-                    let field = ui
-                        .add(egui::TextEdit::multiline(note).hint_text(hint.as_str()).desired_rows(2).desired_width(f32::INFINITY).char_limit(2_000));
+                    let field =
+                        ui.add(crate::rtl::multiline(note).hint_text(hint.as_str()).desired_rows(2).desired_width(f32::INFINITY).char_limit(2_000));
                     crate::text_menu::field(field);
                 }
                 if let Some(tick) = &mut ask.tick {
@@ -3004,8 +3007,12 @@ pub fn show(app: &mut MailApp, ctx: &egui::Context) {
                 AboutTab::Testers => 520.0,
             };
             let open = window(ctx, tl!("About MailCraft"), width, |ui| {
-                ui.horizontal(|ui| {
-                    for (which, label) in [(AboutTab::About, "About"), (AboutTab::Contributors, "Contributors"), (AboutTab::Testers, "Testers")] {
+                crate::rtl::horizontal(ui, |ui| {
+                    for (which, label) in [
+                        (AboutTab::About, tl_later!("About")),
+                        (AboutTab::Contributors, tl_later!("Contributors")),
+                        (AboutTab::Testers, tl_later!("Testers")),
+                    ] {
                         if ui.selectable_label(*tab == which, tl!(label)).clicked() {
                             *tab = which;
                         }
@@ -3229,7 +3236,7 @@ pub(crate) fn unsaved_changes(ctx: &egui::Context, hit: &mut crate::control::Hit
         ui.label(egui::RichText::new(tl!("Unsaved Changes")).font(semibold(14.0)));
         ui.label(text);
         ui.add_space(6.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::rtl::end_to_start(egui::Align::Center), |ui| {
             let cancel = ui.add(egui::Button::new(tl!("Cancel")).min_size(vec2(72.0, 26.0)));
             let discard = ui.add(egui::Button::new(tl!("Don't Save")).min_size(vec2(72.0, 26.0)));
             let save = primary_button(ui, tl!("Save"), true);
